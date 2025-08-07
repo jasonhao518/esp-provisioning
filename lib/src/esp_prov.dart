@@ -22,7 +22,8 @@ class EspProv {
     await transport.disconnect();
 
     if (await transport.connect()) {
-      //while (await transport.checkConnect()) {
+    if(await transport.connect()){
+      while (await transport.checkConnect()) {
         var request = await security.securitySession(responseData);
         var response = await transport.sendReceive(
           'prov-session',
@@ -32,12 +33,8 @@ class EspProv {
           throw Exception('Empty response');
         }
         responseData = SessionData.fromBuffer(response);
-        print('Session response: ${responseData.toString()}');
-
-        // If using proof-of-possession, verify the proof here
-        // (implementation depends on your security.dart logic)
       }
-    //}
+    }
     return;
   }
 
@@ -57,35 +54,54 @@ class EspProv {
     return respPayload;
   }
 
-  Future<WiFiScanPayload> startScanRequest({
-    bool blocking = true,
-    bool passive = false,
-    int groupChannels = 5,
-    int periodMs = 0,
-  }) async {
+  Future<WiFiScanPayload> startScanRequest(
+      {bool blocking = true,
+      bool passive = false,
+      int groupChannels = 5,
+      int periodMs = 0}) async {
     WiFiScanPayload payload = WiFiScanPayload();
     payload.msg = WiFiScanMsgType.TypeCmdScanStart;
-    payload.cmdScanStart = CmdScanStart()
-      ..blocking = blocking
-      ..passive = passive
-      ..groupChannels = groupChannels
-      ..periodMs = periodMs;
-    var response = await transport.sendReceive(
-      'prov-scan',
-      await security.encrypt(payload.writeToBuffer()),
-    );
-    return WiFiScanPayload.fromBuffer(await security.decrypt(response));
+
+    CmdScanStart scanStart = CmdScanStart();
+    scanStart.blocking = blocking;
+    scanStart.passive = passive;
+    scanStart.groupChannels = groupChannels;
+    scanStart.periodMs = periodMs;
+    payload.cmdScanStart = scanStart;
+    var reqData = await security.encrypt(payload.writeToBuffer());
+    var respData = await transport.sendReceive('prov-scan', reqData);
+    return await startScanResponse(respData);
+  }
+
+  Future<WiFiScanPayload> scanStatusResponse(Uint8List data) async {
+    var respPayload = WiFiScanPayload.fromBuffer(await security.decrypt(data));
+    if (respPayload.msg != WiFiScanMsgType.TypeRespScanStatus) {
+      throw Exception('Invalid expected message type $respPayload');
+    }
+    return respPayload;
   }
 
   Future<WiFiScanPayload> scanStatusRequest() async {
     WiFiScanPayload payload = WiFiScanPayload();
     payload.msg = WiFiScanMsgType.TypeCmdScanStatus;
-    payload.cmdScanStatus = CmdScanStatus();
-    var response = await transport.sendReceive(
-      'prov-scan',
-      payload.writeToBuffer(),
-    );
-    return WiFiScanPayload.fromBuffer(await security.decrypt(response));
+    var reqData = await security.encrypt(payload.writeToBuffer());
+    var respData = await transport.sendReceive('prov-scan', reqData);
+    return await scanStatusResponse(respData);
+  }
+
+  Future<List<WifiAP>> scanResultRequest(
+      {int startIndex = 0, int count = 0}) async {
+    WiFiScanPayload payload = WiFiScanPayload();
+    payload.msg = WiFiScanMsgType.TypeCmdScanResult;
+
+    CmdScanResult cmdScanResult = new CmdScanResult();
+    cmdScanResult.startIndex = startIndex;
+    cmdScanResult.count = count;
+
+    payload.cmdScanResult = cmdScanResult;
+    var reqData = await security.encrypt(payload.writeToBuffer());
+    var respData = await transport.sendReceive('prov-scan', reqData);
+    return await scanResultResponse(respData);
   }
 
   Future<List<WifiAP>> scanResultResponse(Uint8List data) async {
@@ -95,29 +111,24 @@ class EspProv {
     }
     List<WifiAP> ret = [];
     for (var entry in respPayload.respScanResult.entries) {
-      ret.add(
-        WifiAP(
+      ret.add(WifiAP(
           ssid: utf8.decode(entry.ssid),
           rssi: entry.rssi,
-          private: entry.auth.toString() != 'Open',
-        ),
-      );
+          private: entry.auth.toString() != 'Open'));
     }
     return ret;
   }
 
-  Future<List<WifiAP>> scan({
-    bool blocking = true,
-    bool passive = false,
-    int groupChannels = 5,
-    int periodMs = 0,
-  }) async {
+  Future<List<WifiAP>> scan(
+      {bool blocking = true,
+      bool passive = false,
+      int groupChannels = 5,
+      int periodMs = 0}) async {
     await startScanRequest(
-      blocking: blocking,
-      passive: passive,
-      groupChannels: groupChannels,
-      periodMs: periodMs,
-    );
+        blocking: blocking,
+        passive: passive,
+        groupChannels: groupChannels,
+        periodMs: periodMs);
     var status = await scanStatusRequest();
     var resultCount = status.respScanStatus.resultCount;
     List<WifiAP> ret = [];
@@ -127,13 +138,7 @@ class EspProv {
       while (remaining > 0) {
         var count = remaining > 4 ? 4 : remaining;
         var data = await scanResultRequest(startIndex: index, count: count);
-        ret.addAll(data.respScanResult.entries.map((entry) {
-          return WifiAP(
-            ssid: utf8.decode(entry.ssid),
-            rssi: entry.rssi,
-            private: entry.auth.toString() != 'Open',
-          );
-        }).toList());
+        ret.addAll(data);
         remaining -= count;
         index += count;
       }
@@ -141,53 +146,29 @@ class EspProv {
     return ret;
   }
 
-  Future<WiFiScanPayload> scanResultRequest({
-    required int startIndex,
-    required int count,
-  }) async {
-    WiFiScanPayload payload = WiFiScanPayload();
-    payload.msg = WiFiScanMsgType.TypeCmdScanResult;
-    payload.cmdScanResult = CmdScanResult()
-      ..startIndex = startIndex
-      ..count = count;
-    var response = await transport.sendReceive(
-      'prov-scan',
-      payload.writeToBuffer(),
-    );
-    return WiFiScanPayload.fromBuffer(await security.decrypt(response));
-  }
-
-  Future<bool> sendWifiConfig({
-    required String ssid,
-    required String password,
-  }) async {
+  Future<bool> sendWifiConfig({required String ssid, required String password}) async {
     var payload = WiFiConfigPayload();
     payload.msg = WiFiConfigMsgType.TypeCmdSetConfig;
-    payload.cmdSetConfig = CmdSetConfig()
-      ..ssid = utf8.encode(ssid)
-      ..passphrase = utf8.encode(password);
-    var response = await transport.sendReceive(
-      'prov-config',
-      payload.writeToBuffer(),
-    );
-    var respPayload = WiFiConfigPayload.fromBuffer(
-      await security.decrypt(response),
-    );
-    return respPayload.respSetConfig.status == Status.Success;
+
+    var cmdSetConfig = CmdSetConfig();
+    cmdSetConfig.ssid = utf8.encode(ssid ?? '');
+    cmdSetConfig.passphrase = utf8.encode(password ?? '');
+    payload.cmdSetConfig = cmdSetConfig;
+    var reqData = await security.encrypt(payload.writeToBuffer());
+    var respData = await transport.sendReceive('prov-config', reqData);
+    var respRaw = await security.decrypt(respData);
+    var respPayload = WiFiConfigPayload.fromBuffer(respRaw);
+    return (respPayload.respSetConfig.status == Status.Success);
   }
 
   Future<bool> applyWifiConfig() async {
     var payload = WiFiConfigPayload();
     payload.msg = WiFiConfigMsgType.TypeCmdApplyConfig;
-    payload.cmdApplyConfig = CmdApplyConfig();
-    var response = await transport.sendReceive(
-      'prov-config',
-      payload.writeToBuffer(),
-    );
-    var respPayload = WiFiConfigPayload.fromBuffer(
-      await security.decrypt(response),
-    );
-    return respPayload.respApplyConfig.status == Status.Success;
+    var reqData = await security.encrypt(payload.writeToBuffer());
+    var respData = await transport.sendReceive('prov-config', reqData);
+    var respRaw = await security.decrypt(respData);
+    var respPayload = WiFiConfigPayload.fromBuffer(respRaw);
+    return (respPayload.respApplyConfig.status == Status.Success);
   }
 
   Future<ConnectionStatus> getStatus() async {

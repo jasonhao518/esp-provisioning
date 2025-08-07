@@ -20,12 +20,3 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
-flutter:
-  plugin:
-    platforms:
-      android:
-        package: com.tuanpm.esp_provisioning
-        pluginClass: EspProvisioningPlugin
-      ios:
-        pluginClass: EspProvisioningPlugin

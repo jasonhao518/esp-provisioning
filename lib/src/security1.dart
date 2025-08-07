@@ -20,11 +20,10 @@ class Security1 implements ProvSecurity {
   X25519 x25519 = X25519();
   Sha256 sha256 = Sha256();
 
-  Security1({
-    required this.pop,
-    this.sessionState = SecurityState.REQUEST1,
-    this.verbose = false,
-  });
+  Security1(
+      {required this.pop,
+      this.sessionState = SecurityState.REQUEST1,
+      this.verbose = false});
 
   void _verbose(dynamic data) {
     if (verbose) {
@@ -33,7 +32,7 @@ class Security1 implements ProvSecurity {
   }
 
   Future<Uint8List> encrypt(Uint8List data) async {
-    _verbose('raw before process  [38;5;208m${data.toString()} [0m');
+    _verbose('raw before process ${data.toString()}');
     return crypt.crypt(data);
   }
 
@@ -120,26 +119,35 @@ class Security1 implements ProvSecurity {
   }
 
   Future<SessionData> setup1Request(SessionData responseData) async {
-    _verbose('setup1Request');
+    var clientVerify = await encrypt(Uint8List.fromList( devicePublicKey!.bytes));
+
+    _verbose('client verify ${clientVerify.toString()}');
     var setupRequest = SessionData();
     setupRequest.secVer = SecSchemeVersion.SecScheme1;
-    SessionCmd1 sc1 = SessionCmd1();
-    sc1.clientVerifyData = _xor(
-      deviceRandom!,
-      await sha256
-          .hash(
-            await clientKey!.extractPublicKey().then((value) => value.bytes),
-          )
-          .then((h) => Uint8List.fromList(h.bytes)),
-    );
     Sec1Payload sec1 = Sec1Payload();
+    sec1.msg = Sec1MsgType.Session_Command1;
+    SessionCmd1 sc1 = SessionCmd1();
+    sc1.clientVerifyData = clientVerify;
     sec1.sc1 = sc1;
     setupRequest.sec1 = sec1;
     return setupRequest;
   }
 
-  Future<void> setup1Response(SessionData responseData) async {
+  Future<SessionData> setup1Response(SessionData responseData) async {
     _verbose('setup1Response');
-    // No-op for now
+    var setupResp = responseData;
+    if (setupResp.secVer == SecSchemeVersion.SecScheme1) {
+      final deviceVerify = setupResp.sec1.sr1.deviceVerifyData;
+      _verbose('Device verify: ${deviceVerify.toString()}');
+      final encClientPubkey =
+          await decrypt(Uint8List.fromList(setupResp.sec1.sr1.deviceVerifyData));
+      _verbose('Enc client pubkey: ${encClientPubkey.toString()}');
+      Function eq = const ListEquality().equals;
+      List<int> temp = await clientKey!.extractPublicKey().then((value) => value.bytes);
+      if (!eq(encClientPubkey, temp)) {
+        throw Exception('Mismatch in device verify');
+      }
+    }
+    throw Exception('Unsupported security protocol');
   }
 }
