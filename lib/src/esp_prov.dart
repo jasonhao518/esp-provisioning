@@ -21,9 +21,8 @@ class EspProv {
 
     await transport.disconnect();
 
-    if (await transport.connect()) {
     if(await transport.connect()){
-      while (await transport.checkConnect()) {
+     // while (await transport.checkConnect()) {
         var request = await security.securitySession(responseData);
         var response = await transport.sendReceive(
           'prov-session',
@@ -33,7 +32,19 @@ class EspProv {
           throw Exception('Empty response');
         }
         responseData = SessionData.fromBuffer(response);
-      }
+        var req2 = await security.securitySession(responseData);
+        if (req2 != null) {
+          response = await transport.sendReceive(
+            'prov-session',
+            req2!.writeToBuffer(),
+          );
+          if (response.isEmpty) {
+            throw Exception('Empty response');
+          }
+          responseData = SessionData.fromBuffer(response);
+          await security.securitySession(responseData);
+        }
+   //   }
     }
     return;
   }

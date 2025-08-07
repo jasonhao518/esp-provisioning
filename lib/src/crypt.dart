@@ -6,7 +6,7 @@ import 'package:pointycastle/export.dart';
 class Crypt {
   late final Uint8List _key;
   late final Uint8List _iv;
-  late final StreamCipher _cipher;
+  static late final StreamCipher _cipher;
 
   void init(Uint8List key, Uint8List iv) {
     _key = key;

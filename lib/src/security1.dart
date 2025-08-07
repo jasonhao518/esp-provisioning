@@ -133,10 +133,11 @@ class Security1 implements ProvSecurity {
     return setupRequest;
   }
 
-  Future<SessionData> setup1Response(SessionData responseData) async {
+  Future<void> setup1Response(SessionData responseData) async {
     _verbose('setup1Response');
     var setupResp = responseData;
-    if (setupResp.secVer == SecSchemeVersion.SecScheme1) {
+    print('setupResp.secVer: ${setupResp.secVer}');
+   // if (setupResp.secVer == SecSchemeVersion.SecScheme1) {
       final deviceVerify = setupResp.sec1.sr1.deviceVerifyData;
       _verbose('Device verify: ${deviceVerify.toString()}');
       final encClientPubkey =
@@ -147,7 +148,7 @@ class Security1 implements ProvSecurity {
       if (!eq(encClientPubkey, temp)) {
         throw Exception('Mismatch in device verify');
       }
-    }
-    throw Exception('Unsupported security protocol');
+   // }
+   // throw Exception('Unsupported security protocol');
   }
 }
