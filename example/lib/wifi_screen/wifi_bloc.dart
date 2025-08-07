@@ -54,7 +54,15 @@ class WifiBloc extends Bloc<WifiEvent, WifiState> {
       emit(WifiStateProvisioning());
       await prov?.sendWifiConfig(ssid: event.ssid, password: event.password);
       await prov?.applyWifiConfig();
-      await Future.delayed(Duration(seconds: 1));
+      for(int i = 0; i < 10; i++) {
+        var status = await prov?.getStatus();
+        if (status?.state == WifiConnectionState.Connected) {
+          log.i('Device connected successfully');
+          break;
+        }
+        log.w('Waiting for device to connect... Attempt $i');
+        await Future.delayed(Duration(seconds: 1));
+      }
       emit(WifiStateProvisioned());
     });
   }
